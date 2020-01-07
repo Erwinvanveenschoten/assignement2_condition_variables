@@ -1,4 +1,4 @@
-/* 
+/*
  * Operating Systems {2INCO} Practical Assignment
  * Condition Variables Application
  *
@@ -6,12 +6,12 @@
  * STUDENT_NAME_2 (STUDENT_NR_2)
  *
  * Grading:
- * Students who hand in clean code that fully satisfies the minimum requirements will get an 8. 
- * Extra steps can lead to higher marks because we want students to take the initiative. 
- * Extra steps can be, for example, in the form of measurements added to your code, a formal 
+ * Students who hand in clean code that fully satisfies the minimum requirements will get an 8.
+ * Extra steps can lead to higher marks because we want students to take the initiative.
+ * Extra steps can be, for example, in the form of measurements added to your code, a formal
  * analysis of deadlock freeness etc.
  */
- 
+
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -23,69 +23,151 @@
 
 #include "prodcons.h"
 
-static ITEM buffer[BUFFER_SIZE];
+#define BUFFER_EMPTY 0
 
-static void rsleep (int t);			// already implemented (see below)
+/*******************************************************************************
+**  FUNCTION DECLARATIONS
+*******************************************************************************/
+static void rsleep (int t);			  // already implemented (see below)
 static ITEM get_next_item (void);	// already implemented (see below)
 
+static void put(ITEM item);
+static ITEM get( void );
+static void * consumer(void * arg);
+static void * producer(void *arg);
 
-/* producer thread */
-static void * 
-producer (void * arg)
-{
-    while (true /* TODO: not all items produced */)
-    {
-        // TODO: 
-        // * get the new item
-		
-        rsleep (100);	// simulating all kind of activities...
-		
-		// TODO:
-		// * put the item into buffer[]
-		//
-        // follow this pseudocode (according to the ConditionSynchronization lecture):
-        //      mutex-lock;
-        //      while not condition-for-this-producer
-        //          wait-cv;
-        //      critical-section;
-        //      possible-cv-signals;
-        //      mutex-unlock;
-        //
-        // (see condition_test() in condition_basics.c how to use condition variables)
-    }
-	return (NULL);
-}
+/*******************************************************************************
+**  GLOBAL DATA
+*******************************************************************************/
 
-/* consumer thread */
-static void * 
-consumer (void * arg)
-{
-    while (true /* TODO: not all items retrieved from buffer[] */)
-    {
-        // TODO: 
-		// * get the next item from buffer[]
-		// * print the number to stdout
-        //
-        // follow this pseudocode (according to the ConditionSynchronization lecture):
-        //      mutex-lock;
-        //      while not condition-for-this-consumer
-        //          wait-cv;
-        //      critical-section;
-        //      possible-cv-signals;
-        //      mutex-unlock;
-		
-        rsleep (100);		// simulating all kind of activities...
-    }
-	return (NULL);
-}
+static pthread_mutex_t buffer_m = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t buffer_full, buffer_empty;
+static int item_count, production_index, consumption_index = 0;
+static ITEM buffer[BUFFER_SIZE];
+
+/*******************************************************************************
+**  MAIN
+*******************************************************************************/
 
 int main (void)
 {
-    // TODO: 
+    // TODO:
     // * startup the producer threads and the consumer thread
-    // * wait until all threads are finished  
-    
+    // * wait until all threads are finished
+
+    pthread_t producers_tid[NROF_PRODUCERS], consumer_tid;
+
+    pthread_create(&consumer_tid, NULL, consumer, NULL);
+
+    for (int i = 0; i < NROF_PRODUCERS; i++)
+    {
+      pthread_create(&producers_tid[i], NULL, producer, NULL);
+    }
+
+
+    pthread_join(consumer_tid, NULL);
+
+    for (int i = 0; i < NROF_PRODUCERS; i++)
+    {
+      pthread_join(producers_tid[i], NULL);
+    }
+
     return (0);
+}
+
+/*******************************************************************************
+**  FUNCTION DEFINITIONS
+*******************************************************************************/
+
+/* producer thread */
+static void *
+producer (void * arg)
+{
+    while (true)
+    {
+        // TODO:
+        // ascending order
+
+        rsleep (100);	// simulating all kind of activities...
+
+        // mutex-lock;
+        pthread_mutex_lock(&buffer_m);
+
+        // while buffer is full
+        while ( item_count == BUFFER_SIZE )
+        {
+          // wait-cv;
+          pthread_cond_wait(&buffer_empty, &buffer_m);
+        }
+
+        // critical-section;
+        ITEM item = get_next_item();
+
+        put(item);
+
+        //  Signal to consumer since buffer is no longer empty
+        pthread_cond_signal(&buffer_full);
+
+        // mutex-unlock;
+        pthread_mutex_unlock(&buffer_m);
+
+        // when last item is produced
+        if (item == NROF_ITEMS)
+        {
+          break;
+        }
+    }
+
+
+
+    return (NULL);
+}
+
+/* consumer thread */
+static void *
+consumer (void * arg)
+{
+    int prod_terminate_count = 0;
+    while ( true )
+    {
+        // TODO:
+        // signal the right producer
+
+        // mutex-lock;
+        pthread_mutex_lock(&buffer_m);
+
+        // while buffer is empty
+        while ( item_count == BUFFER_EMPTY )
+        {
+          //wait
+          pthread_cond_wait(&buffer_full,&buffer_m);
+        }
+
+        // critical-section;
+        ITEM item = get();
+
+        // signal producer since buffer is no longer full
+        pthread_cond_signal(&buffer_empty);
+
+        // mutex-unlock;
+        pthread_mutex_unlock(&buffer_m);
+
+        //  Increment finished producers when item with value NROF_ITEMS is obtained from the buffer
+        if (item == NROF_ITEMS)
+        {
+          prod_terminate_count++;
+        } else
+        {
+          printf("%d\n", item);
+        }
+
+        //  If all producers are finished, terminate...
+        if (prod_terminate_count == NROF_PRODUCERS)
+          break;
+
+        rsleep (100);		// simulating all kind of activities...
+    }
+	  return (NULL);
 }
 
 /*
@@ -94,11 +176,11 @@ int main (void)
  * The calling thread will be suspended for a random amount of time between 0 and t microseconds
  * At the first call, the random generator is seeded with the current time
  */
-static void 
+static void
 rsleep (int t)
 {
     static bool first_call = true;
-    
+
     if (first_call == true)
     {
         srandom (time(NULL));
@@ -108,15 +190,15 @@ rsleep (int t)
 }
 
 
-/* 
+/*
  * get_next_item()
  *
  * description:
  *		thread-safe function to get a next job to be executed
- *		subsequent calls of get_next_item() yields the values 0..NROF_ITEMS-1 
- *		in arbitrary order 
+ *		subsequent calls of get_next_item() yields the values 0..NROF_ITEMS-1
+ *		in arbitrary order
  *		return value NROF_ITEMS indicates that all jobs have already been given
- * 
+ *
  * parameters:
  *		none
  *
@@ -131,8 +213,8 @@ get_next_item(void)
 	static bool 			jobs[NROF_ITEMS+1] = { false };	// keep track of issued jobs
 	static int              counter = 0;    // seq.nr. of job to be handled
     ITEM 					found;          // item to be returned
-	
-	/* avoid deadlock: when all producers are busy but none has the next expected item for the consumer 
+
+	/* avoid deadlock: when all producers are busy but none has the next expected item for the consumer
 	 * so requirement for get_next_item: when giving the (i+n)'th item, make sure that item (i) is going to be handled (with n=nrof-producers)
 	 */
 	pthread_mutex_lock (&job_mutex);
@@ -159,10 +241,10 @@ get_next_item(void)
 	        {
 	            // already handled, find a random one, with a bias for lower items
 	            found = (counter + (random() % NROF_PRODUCERS)) % NROF_ITEMS;
-	        }    
+	        }
 	    }
-	    
-	    // check if 'found' is really an unhandled item; 
+
+	    // check if 'found' is really an unhandled item;
 	    // if not: find another one
 	    if (jobs[found] == true)
 	    {
@@ -175,9 +257,22 @@ get_next_item(void)
 	    }
 	}
     jobs[found] = true;
-			
+
 	pthread_mutex_unlock (&job_mutex);
 	return (found);
 }
 
+void put(ITEM item)
+{
+  buffer[production_index] = item;
+  production_index = (production_index++) % BUFFER_SIZE;
+  item_count++;
+}
 
+ITEM get( void )
+{
+  ITEM item = buffer[consumption_index];
+  consumption_index = (consumption_index++) % BUFFER_SIZE;
+  item_count--;
+  return item;
+}
