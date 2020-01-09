@@ -42,7 +42,7 @@ static void * producer(void *arg);
 
 static pthread_mutex_t buffer_m = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t buffer_full, buffer_empty;
-static int item_count, production_index, consumption_index = 0;
+static int item_count, production_index, consumption_index, next_item_to_process = 0;
 static ITEM buffer[BUFFER_SIZE];
 
 /*******************************************************************************
@@ -51,12 +51,9 @@ static ITEM buffer[BUFFER_SIZE];
 
 int main (void)
 {
-    // TODO:
-    // * startup the producer threads and the consumer thread
-    // * wait until all threads are finished
-
     pthread_t producers_tid[NROF_PRODUCERS], consumer_tid;
 
+    // create the producer threads and the consumer thread
     pthread_create(&consumer_tid, NULL, consumer, NULL);
 
     for (int i = 0; i < NROF_PRODUCERS; i++)
@@ -64,13 +61,20 @@ int main (void)
       pthread_create(&producers_tid[i], NULL, producer, NULL);
     }
 
-
+    // wait until all threads are finished
     pthread_join(consumer_tid, NULL);
 
     for (int i = 0; i < NROF_PRODUCERS; i++)
     {
       pthread_join(producers_tid[i], NULL);
     }
+
+    // destroy mutex
+    pthread_mutex_destroy(&buffer_m);
+
+    // destroy conditional variables
+    pthread_cond_destroy(&buffer_full);
+    pthread_cond_destroy(&buffer_empty);
 
     return (0);
 }
@@ -83,26 +87,43 @@ int main (void)
 static void *
 producer (void * arg)
 {
+
+  ITEM item;
+  
     while (true)
     {
-        // TODO:
-        // ascending order
-
+        item = get_next_item();
+        
         rsleep (100);	// simulating all kind of activities...
 
         // mutex-lock;
         pthread_mutex_lock(&buffer_m);
 
-        // while buffer is full
-        while ( item_count == BUFFER_SIZE )
+        // while buffer is full or item is not next item to process
+        while ( item_count == BUFFER_SIZE || (item_count != BUFFER_SIZE && item != next_item_to_process))
         {
           // wait-cv;
           pthread_cond_wait(&buffer_empty, &buffer_m);
+          
+          // if item is not next item to process
+          if ( item != next_item_to_process )
+          {
+            // signal other producer
+            pthread_cond_signal(&buffer_empty);
+          }
+        }
+        // critical-section;
+
+        // increase nex item to process
+        next_item_to_process++;
+
+        // check if next item to process has eccieded max items
+        if(next_item_to_process > NROF_ITEMS)
+        {
+          next_item_to_process = NROF_ITEMS;
         }
 
-        // critical-section;
-        ITEM item = get_next_item();
-
+        // put item in buffer
         put(item);
 
         //  Signal to consumer since buffer is no longer empty
@@ -117,9 +138,6 @@ producer (void * arg)
           break;
         }
     }
-
-
-
     return (NULL);
 }
 
@@ -130,9 +148,6 @@ consumer (void * arg)
     int prod_terminate_count = 0;
     while ( true )
     {
-        // TODO:
-        // signal the right producer
-
         // mutex-lock;
         pthread_mutex_lock(&buffer_m);
 
@@ -158,15 +173,18 @@ consumer (void * arg)
           prod_terminate_count++;
         } else
         {
-          printf("%d\n", item);
+          printf("%d\n", item); 
         }
 
         //  If all producers are finished, terminate...
         if (prod_terminate_count == NROF_PRODUCERS)
+        {
           break;
+        }
 
         rsleep (100);		// simulating all kind of activities...
     }
+    
 	  return (NULL);
 }
 
@@ -209,7 +227,7 @@ rsleep (int t)
 static ITEM
 get_next_item(void)
 {
-    static pthread_mutex_t	job_mutex	= PTHREAD_MUTEX_INITIALIZER;
+  static pthread_mutex_t	job_mutex	= PTHREAD_MUTEX_INITIALIZER;
 	static bool 			jobs[NROF_ITEMS+1] = { false };	// keep track of issued jobs
 	static int              counter = 0;    // seq.nr. of job to be handled
     ITEM 					found;          // item to be returned
@@ -258,6 +276,7 @@ get_next_item(void)
 	}
     jobs[found] = true;
 
+
 	pthread_mutex_unlock (&job_mutex);
 	return (found);
 }
@@ -265,14 +284,15 @@ get_next_item(void)
 void put(ITEM item)
 {
   buffer[production_index] = item;
-  production_index = (production_index++) % BUFFER_SIZE;
+  production_index = (++production_index) % BUFFER_SIZE;
+
   item_count++;
 }
 
 ITEM get( void )
 {
   ITEM item = buffer[consumption_index];
-  consumption_index = (consumption_index++) % BUFFER_SIZE;
+  consumption_index = (++consumption_index) % BUFFER_SIZE;
   item_count--;
   return item;
 }
