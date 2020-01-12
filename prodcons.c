@@ -2,8 +2,8 @@
  * Operating Systems {2INCO} Practical Assignment
  * Condition Variables Application
  *
- * STUDENT_NAME_1 (STUDENT_NR_1)
- * STUDENT_NAME_2 (STUDENT_NR_2)
+ * Arjon Arts (1521950)
+ * Erwin van Veenschoten (1524348)
  *
  * Grading:
  * Students who hand in clean code that fully satisfies the minimum requirements will get an 8.
@@ -40,9 +40,9 @@ static void * producer(void *arg);
 **  GLOBAL DATA
 *******************************************************************************/
 
-static pthread_mutex_t buffer_m = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t critical_section = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t buffer_full, buffer_empty;
-static int item_count, production_index, consumption_index, next_item_to_process = 0;
+static int item_count, production_index, consumption_index, next_item_to_produce = 0;
 static ITEM buffer[BUFFER_SIZE];
 
 /*******************************************************************************
@@ -70,7 +70,7 @@ int main (void)
     }
 
     // destroy mutex
-    pthread_mutex_destroy(&buffer_m);
+    pthread_mutex_destroy(&critical_section);
 
     // destroy conditional variables
     pthread_cond_destroy(&buffer_full);
@@ -89,24 +89,24 @@ producer (void * arg)
 {
 
   ITEM item;
-  
+
     while (true)
     {
         item = get_next_item();
-        
+
         rsleep (100);	// simulating all kind of activities...
 
         // mutex-lock;
-        pthread_mutex_lock(&buffer_m);
+        pthread_mutex_lock(&critical_section);
 
         // while buffer is full or item is not next item to process
-        while ( item_count == BUFFER_SIZE || (item_count != BUFFER_SIZE && item != next_item_to_process))
+        while ( item_count == BUFFER_SIZE || (item_count != BUFFER_SIZE && item != next_item_to_produce))
         {
           // wait-cv;
-          pthread_cond_wait(&buffer_empty, &buffer_m);
-          
+          pthread_cond_wait(&buffer_empty, &critical_section);
+
           // if item is not next item to process
-          if ( item != next_item_to_process )
+          if ( item != next_item_to_produce )
           {
             // signal other producer
             pthread_cond_signal(&buffer_empty);
@@ -115,12 +115,12 @@ producer (void * arg)
         // critical-section;
 
         // increase nex item to process
-        next_item_to_process++;
+        next_item_to_produce++;
 
-        // check if next item to process has eccieded max items
-        if(next_item_to_process > NROF_ITEMS)
+        // check if next item to process has exceeded max items
+        if(next_item_to_produce > NROF_ITEMS)
         {
-          next_item_to_process = NROF_ITEMS;
+          next_item_to_produce = NROF_ITEMS;
         }
 
         // put item in buffer
@@ -130,7 +130,7 @@ producer (void * arg)
         pthread_cond_signal(&buffer_full);
 
         // mutex-unlock;
-        pthread_mutex_unlock(&buffer_m);
+        pthread_mutex_unlock(&critical_section);
 
         // when last item is produced
         if (item == NROF_ITEMS)
@@ -149,13 +149,13 @@ consumer (void * arg)
     while ( true )
     {
         // mutex-lock;
-        pthread_mutex_lock(&buffer_m);
+        pthread_mutex_lock(&critical_section);
 
         // while buffer is empty
         while ( item_count == BUFFER_EMPTY )
         {
           //wait
-          pthread_cond_wait(&buffer_full,&buffer_m);
+          pthread_cond_wait(&buffer_full,&critical_section);
         }
 
         // critical-section;
@@ -165,7 +165,7 @@ consumer (void * arg)
         pthread_cond_signal(&buffer_empty);
 
         // mutex-unlock;
-        pthread_mutex_unlock(&buffer_m);
+        pthread_mutex_unlock(&critical_section);
 
         //  Increment finished producers when item with value NROF_ITEMS is obtained from the buffer
         if (item == NROF_ITEMS)
@@ -173,7 +173,7 @@ consumer (void * arg)
           prod_terminate_count++;
         } else
         {
-          printf("%d\n", item); 
+          printf("%d\n", item);
         }
 
         //  If all producers are finished, terminate...
@@ -184,7 +184,7 @@ consumer (void * arg)
 
         rsleep (100);		// simulating all kind of activities...
     }
-    
+
 	  return (NULL);
 }
 
